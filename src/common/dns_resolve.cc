@@ -18,6 +18,8 @@
 #include "dns_resolve.h"
 #include "common/debug.h"
 
+#include "include//windows/arpa/nameser.h"
+
 #define dout_subsys ceph_subsys_
 
 
