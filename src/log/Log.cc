@@ -18,13 +18,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
-
-// TODO: use Windows Event Log
-#if !defined(_WIN32)
-  #include <syslog.h>
-#else
-  void syslog(int priority, const char *message, ...);
-#endif
+#include <syslog.h>
 
 #include <iostream>
 
@@ -267,7 +261,7 @@ void Log::_flush(EntryVector& t, bool crash)
 
     bool should_log = crash || m_subs->get_log_level(sub) >= prio;
     bool do_fd = m_fd >= 0 && should_log;
-    bool do_syslog = m_syslog_crash >= prio && should_log && SYSLOG_AVAILABLE;
+    bool do_syslog = m_syslog_crash >= prio && should_log;
     bool do_stderr = m_stderr_crash >= prio && should_log;
     bool do_graylog2 = m_graylog_crash >= prio && should_log;
 
@@ -290,11 +284,9 @@ void Log::_flush(EntryVector& t, bool crash)
       pos[used] = '\0';
       ceph_assert((used + 1 /* '\n' */) < allocated);
 
-      #if SYSLOG_AVAILABLE
       if (do_syslog) {
         syslog(LOG_USER|LOG_INFO, "%s", pos);
       }
-      #endif /* SYSLOG_AVAILABLE */
 
       if (do_stderr) {
         std::cerr << m_log_stderr_prefix << std::string_view(pos, used) << std::endl;
@@ -337,12 +329,9 @@ void Log::_log_message(const char *s, bool crash)
     if (r < 0)
       std::cerr << "problem writing to " << m_log_file << ": " << cpp_strerror(r) << std::endl;
   }
-
-  #if SYSLOG_AVAILABLE
   if ((crash ? m_syslog_crash : m_syslog_log) >= 0) {
     syslog(LOG_USER|LOG_INFO, "%s", s);
   }
-  #endif /* SYSLOG_AVAILABLE */
 
   if ((crash ? m_stderr_crash : m_stderr_log) >= 0) {
     std::cerr << s << std::endl;
