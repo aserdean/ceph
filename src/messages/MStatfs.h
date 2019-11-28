@@ -16,6 +16,7 @@
 #ifndef CEPH_MSTATFS_H
 #define CEPH_MSTATFS_H
 
+#include <sys/statvfs.h>    /* or <sys/statfs.h> */
 #include "messages/PaxosServiceMessage.h"
 
 class MStatfs : public PaxosServiceMessage {

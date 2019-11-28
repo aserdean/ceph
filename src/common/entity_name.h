@@ -15,6 +15,8 @@
 #ifndef CEPH_COMMON_ENTITY_NAME_H
 #define CEPH_COMMON_ENTITY_NAME_H
 
+#include <ifaddrs.h>
+
 #include "msg/msg_types.h"
 
 /* Represents a Ceph entity name.
