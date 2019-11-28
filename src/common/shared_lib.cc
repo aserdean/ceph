@@ -54,7 +54,7 @@ void* find_symbol(lib_handle handle, const char* symbol) {
 }
 
 char* shared_lib_last_err() {
-  return dlerror()
+  return dlerror();
 }
 
 void shared_lib_free_err_msg(char* msg) {
