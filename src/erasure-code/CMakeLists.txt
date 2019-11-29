@@ -28,7 +28,11 @@ if (HAVE_BETTER_YASM_ELF64)
 endif (HAVE_BETTER_YASM_ELF64)
 
 add_library(erasure_code STATIC ErasureCodePlugin.cc)
-target_link_libraries(erasure_code ceph-common ${CMAKE_DL_LIBS})
+if(NOT WIN32)
+  target_link_libraries(erasure_code ${CMAKE_DL_LIBS})
+else()
+  target_link_libraries(erasure_code ceph-common ${CMAKE_DL_LIBS})
+endif()
 
 add_library(erasure_code_objs OBJECT ErasureCode.cc)
 
