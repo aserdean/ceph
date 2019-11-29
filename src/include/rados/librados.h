@@ -15,12 +15,15 @@
 #ifndef CEPH_LIBRADOS_H
 #define CEPH_LIBRADOS_H
 
-#include "include/sock_types.h"
+#ifdef _WIN32
+#include "../windows/windefs.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#include <netinet/in.h>
 #if defined(__linux__)
 #include <linux/types.h>
 #elif defined(__FreeBSD__)

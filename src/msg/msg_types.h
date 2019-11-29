@@ -17,6 +17,8 @@
 
 #include <sstream>
 
+#include <netinet/in.h>
+
 #include "include/ceph_features.h"
 #include "include/types.h"
 #include "include/blobhash.h"

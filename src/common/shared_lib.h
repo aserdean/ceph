@@ -6,7 +6,6 @@
 
 #ifdef _WIN32
   #include "include/compat.h"
-
   typedef HMODULE lib_handle;
 #else
   #include <ostream>

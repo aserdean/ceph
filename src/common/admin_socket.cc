@@ -11,10 +11,8 @@
  * Foundation.  See file COPYING.
  *
  */
-#ifndef _WIN32
-// We'll use WSAPoll from winsock2.h for Windows.
+
 #include <poll.h>
-#endif
 
 #include "common/admin_socket.h"
 #include "common/admin_socket_client.h"
@@ -24,7 +22,6 @@
 #include "common/Thread.h"
 #include "common/version.h"
 #include "common/ceph_mutex.h"
-#include "include/sock_types.h"
 
 #ifndef WITH_SEASTAR
 #include "common/Cond.h"

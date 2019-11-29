@@ -4,7 +4,6 @@
 
 #include "include/windows/ifaddrs.h"
 #include "include/ipaddr.h"
-#include "include/sock_types.h"
 #include "msg/msg_types.h"
 #include "common/pick_address.h"
 

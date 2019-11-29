@@ -15,12 +15,15 @@
 #ifndef CEPH_LIBRBD_H
 #define CEPH_LIBRBD_H
 
-#include <include/sock_types.h>
+#ifdef _WIN32
+#include "../windows/windefs.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#include <netinet/in.h>
 #if defined(__linux__)
 #include <linux/types.h>
 #elif defined(__FreeBSD__)
@@ -30,7 +33,6 @@ extern "C" {
 #include <string.h>
 #include "../rados/librados.h"
 #include "features.h"
-#include "include/compat.h"
 
 
 #define LIBRBD_VER_MAJOR 1

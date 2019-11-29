@@ -17,7 +17,7 @@
 #include <unistd.h>
 
 #ifdef _WIN32
-#include "include/sock_types.h"
+#include "include/windows/windefs.h"
 #endif
 
 std::string ceph_get_hostname()

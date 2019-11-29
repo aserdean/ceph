@@ -13,7 +13,9 @@
 #define CEPH_SOCK_COMPAT_H
 
 #include "include/compat.h"
-#include "include/sock_types.h"
+#ifdef _WIN32
+#include "include/windows/windefs.h"
+#endif
 
 /*
  * This optimization may not be available on all platforms (e.g. OSX).

@@ -9,7 +9,6 @@
 
 #include <regex>
 
-#include "include/sock_types.h"
 #include "common/address_helper.h"
 
 // decode strings like "tcp://<host>:<port>"

@@ -15,8 +15,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "include/sock_types.h"
+#if defined(__FreeBSD__) || defined(_AIX)
+#include <sys/socket.h>
+#include <netinet/in.h>
+#endif
+#include <netdb.h>
 
 #define BUF_SIZE 128
 

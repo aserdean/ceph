@@ -12,8 +12,9 @@
  *
  */
 
+#include <arpa/inet.h>
+
 #include "include/scope_guard.h"
-#include "include/sock_types.h"
 #include "dns_resolve.h"
 #include "common/debug.h"
 
