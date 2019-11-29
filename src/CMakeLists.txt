@@ -407,6 +407,11 @@ set(ceph_common_deps
   ${CMAKE_THREAD_LIBS_INIT}
   ${CMAKE_DL_LIBS}
   ${ZLIB_LIBRARIES})
+if (NOT WIN32)
+  # We have to avoid a circular dependency between the common and
+  # erasure libraries.
+  list(APPEND ceph_common_deps erasure_code)
+endif()
 if(HAVE_UDEV)
   list(APPEND ceph_common_deps ${UDEV_LIBRARIES})
 endif()
