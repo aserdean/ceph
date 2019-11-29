@@ -15,7 +15,7 @@
 #ifndef CEPH_LIBRADOS_H
 #define CEPH_LIBRADOS_H
 
-#include "include/sock_types.h"
+#include "../sock_types.h"
 
 #ifdef __cplusplus
 extern "C" {

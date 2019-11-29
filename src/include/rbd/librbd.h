@@ -15,7 +15,7 @@
 #ifndef CEPH_LIBRBD_H
 #define CEPH_LIBRBD_H
 
-#include <include/sock_types.h>
+#include "../sock_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,8 +30,6 @@ extern "C" {
 #include <string.h>
 #include "../rados/librados.h"
 #include "features.h"
-#include "include/compat.h"
-
 
 #define LIBRBD_VER_MAJOR 1
 #define LIBRBD_VER_MINOR 12
