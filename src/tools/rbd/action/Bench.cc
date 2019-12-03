@@ -550,7 +550,7 @@ int bench_execute(const po::variables_map &vm, io_type_t bench_io_type) {
   unregister_async_signal_handler(SIGINT, handle_signal);
   unregister_async_signal_handler(SIGTERM, handle_signal);
   shutdown_async_signal_handler();
-  #endif()
+  #endif
 
   if (r < 0) {
     std::cerr << "bench failed: " << cpp_strerror(r) << std::endl;
