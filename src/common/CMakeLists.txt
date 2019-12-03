@@ -56,7 +56,6 @@ set(common_srcs
   condition_variable_debug.cc
   config.cc
   config_values.cc
-  dns_resolve.cc
   dout.cc
   entity_name.cc
   environment.cc
@@ -101,11 +100,11 @@ set(common_srcs
 
 if (WIN32)
   list(APPEND common_srcs blkdev_win32.cc
-       xattr_win32.c res_quer_win32.c ns_initparse.c ifaddrs.c)
+       xattr_win32.c ifaddrs.c dns_resolve_win32.cc)
 else()
   list(APPEND common_srcs
        blkdev.cc linux_version.c
-       xattr.c)
+       dns_resolve.cc xattr.c)
 endif()
 
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/common/version.cc

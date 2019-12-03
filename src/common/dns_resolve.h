@@ -18,7 +18,7 @@
 #include <resolv.h>
 
 #include "common/ceph_mutex.h"
-#include "msg/msg_types.h"      // for entity_addr_t
+#include "msg/msg_types.h"		// for entity_addr_t
 
 namespace ceph {
 
@@ -30,21 +30,19 @@ class ResolvHWrapper {
   public:
     virtual ~ResolvHWrapper() {}
 
-// TODO: we can either implement a similar wrapper for Windows, if not avoid it
-// completely.
-    #ifdef HAVE_RES_NQUERY
-        virtual int res_nquery(res_state s, const char *hostname, int cls, int type,
-            u_char *buf, int bufsz);
+#ifdef HAVE_RES_NQUERY
+    virtual int res_nquery(res_state s, const char *hostname, int cls, int type, 
+        u_char *buf, int bufsz);
 
-        virtual int res_nsearch(res_state s, const char *hostname, int cls, int type,
-            u_char *buf, int bufsz);
-    #else
-        virtual int res_query(const char *hostname, int cls, int type,
-            u_char *buf, int bufsz);
+    virtual int res_nsearch(res_state s, const char *hostname, int cls, int type, 
+        u_char *buf, int bufsz);
+#else
+    virtual int res_query(const char *hostname, int cls, int type,
+        u_char *buf, int bufsz);
 
-        virtual int res_search(const char *hostname, int cls, int type,
-            u_char *buf, int bufsz);
-    #endif /* HAVE_RES_NQUERY */
+    virtual int res_search(const char *hostname, int cls, int type,
+        u_char *buf, int bufsz);
+#endif
 
 };
 
@@ -141,11 +139,13 @@ class DNSResolver {
     void put_state(res_state s);
 #endif
 
+#ifndef _WIN32
     /* this private function allows to reuse the res_state structure used
      * by other function of this class
      */
     int resolve_ip_addr(CephContext *cct, res_state *res,
         const std::string& hostname, entity_addr_t *addr);
+#endif
 
     std::string srv_protocol_to_str(SRV_Protocol proto) {
       switch (proto) {

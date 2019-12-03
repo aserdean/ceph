@@ -21,6 +21,16 @@
 
 namespace ceph {
 
+int ResolvHWrapper::res_query(const char *hostname, int cls,
+    int type, u_char *buf, int bufsz) {
+  return -1;
+}
+
+int ResolvHWrapper::res_search(const char *hostname, int cls,
+    int type, u_char *buf, int bufsz) {
+  return -1;
+}
+
 DNSResolver::~DNSResolver()
 {
   delete resolv_h;
