@@ -2,7 +2,7 @@
 #include <winsock2.h>
 #include <iphlpapi.h>
 #include <ws2tcpip.h>
-#include "include/windows/ifaddrs.h"
+#include <ifaddrs.h>
 
 int getifaddrs(struct ifaddrs **ifap)
 {
@@ -83,7 +83,8 @@ int getifaddrs(struct ifaddrs **ifap)
 				(*addr6) = *(struct sockaddr_in6 *) pSockAddr;
 			}
 			fa->speed = aa->TransmitLinkSpeed;
-			sprintf_s(fa->ad_name, sizeof(fa->ad_name), "eth%d", i++);
+			// TODO maybe use friendly name instead of adapter GUID
+			sprintf_s(fa->ad_name, sizeof(fa->ad_name), aa->AdapterName);
 		}
 	}
 	ret = 0;

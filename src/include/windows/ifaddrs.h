@@ -16,13 +16,9 @@
 #ifndef IFADDRS_H
 #define IFADDRS_H
 
-#include <winsock2.h>
+#include "windefs.h"
+#include <ifdef.h>
 
-//#define	IFF_UP				1<<0
-//#define IFF_LOOPBACK			1<<3
-
-/* here is minimal subset of ifaddr API required for sockets & UDP
-   providers */
 struct ifaddrs {
 	struct ifaddrs  *ifa_next;    /* Next item in list */
 	char            *ifa_name;    /* Name of interface */
@@ -33,11 +29,17 @@ struct ifaddrs {
 	struct sockaddr_storage in_addrs;
 	struct sockaddr_storage in_netmasks;
 
-	char		   ad_name[16];
+	char		   ad_name[IF_MAX_STRING_SIZE];
 	size_t		   speed;
 };
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 int getifaddrs(struct ifaddrs **ifap);
 void freeifaddrs(struct ifaddrs *ifa);
+#ifdef __cplusplus
+}
+#endif
 
 #endif

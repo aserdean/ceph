@@ -95,15 +95,16 @@ set(common_srcs
   utf8.c
   util.cc
   version.cc
-  shared_lib.cc)
+  shared_lib.cc
+  ipaddr.cc
+  pick_address.cc)
 
 if (WIN32)
   list(APPEND common_srcs blkdev_win32.cc
-       xattr_win32.c res_quer_win32.c ns_initparse.c ifaddrs.c ipaddr_win32.cc)
+       xattr_win32.c res_quer_win32.c ns_initparse.c ifaddrs.c)
 else()
   list(APPEND common_srcs
        blkdev.cc linux_version.c
-       pick_address.cc ipaddr.cc
        xattr.c)
 endif()
 
