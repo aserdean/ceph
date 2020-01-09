@@ -31,6 +31,7 @@ zlibDir="${depsToolsetDir}/zlib"
 zlibSrcDir="${depsSrcDir}/zlib"
 backtraceDir="${depsToolsetDir}/backtrace"
 backtraceSrcDir="${depsSrcDir}/backtrace"
+backtraceTag="5a99ff7fed66b8ea8f09c9805c138524a7035ece"
 snappySrcDir="${depsSrcDir}/snappy"
 snappyDir="${depsToolsetDir}/snappy"
 snappyTag="1.1.7"
@@ -222,8 +223,9 @@ cd $depsSrcDir
 if [[ ! -d $backtraceSrcDir ]]; then
     git clone https://github.com/ianlancetaylor/libbacktrace
 fi
-mkdir libbacktrace/build
-cd libbacktrace/build
+cd libbacktrace && git checkout $backtraceTag
+mkdir build
+cd build
 ../configure --prefix=$backtraceDir --exec-prefix=$backtraceDir \
              --host x86_64-w64-mingw32 --enable-host-shared
 _make LDFLAGS="-no-undefined"
