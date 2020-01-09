@@ -2,6 +2,8 @@
 
 set -e
 
+git submodule update --init --recursive
+
 SCRIPT_DIR="$(dirname "$BASH_SOURCE")"
 SCRIPT_DIR="$(realpath "$SCRIPT_DIR")"
 
