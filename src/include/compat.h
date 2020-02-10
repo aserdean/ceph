@@ -226,12 +226,12 @@ char *ceph_strerror_r(int errnum, char *buf, size_t buflen);
 
 typedef _sigset_t sigset_t;
 
-typedef int uid_t;
-typedef int gid_t;
+typedef unsigned int uid_t;
+typedef unsigned int gid_t;
 
-typedef long blksize_t;
-typedef long blkcnt_t;
-typedef long nlink_t;
+typedef unsigned int blksize_t;
+typedef unsigned __int64 blkcnt_t;
+typedef unsigned short nlink_t;
 
 typedef long long loff_t;
 
@@ -295,6 +295,52 @@ int fchown(int fd, uid_t owner, gid_t group);
 int lchown(const char *path, uid_t owner, gid_t group);
 
 int win_socketpair(int socks[2]);
+
+/*by ketor START*/
+/* for posix fcntl() and lockf() */
+#ifndef F_RDLCK
+#define F_RDLCK		0
+#define F_WRLCK		1
+#define F_UNLCK		2
+#endif
+
+#define O_NOFOLLOW 00400000 /* don't follow links */
+
+/* operations for bsd flock(), also used by the kernel implementation */
+#define LOCK_SH		1	/* shared lock */
+#define LOCK_EX		2	/* exclusive lock */
+#define LOCK_NB		4	/* or'd with one of the above to prevent
+				   blocking */
+#define LOCK_UN		8	/* remove lock */
+
+#define LOCK_MAND	32	/* This is a mandatory flock ... */
+#define LOCK_READ	64	/* which allows concurrent read operations */
+#define LOCK_WRITE	128	/* which allows concurrent write operations */
+#define LOCK_RW		192	/* which allows concurrent read & write ops */
+
+typedef long		__kernel_off_t;
+typedef int		__kernel_pid_t;
+
+int geteuid()
+{
+	return 0;
+}
+
+int getegid()
+{
+	return 0;
+}
+
+int getuid()
+{
+	return 0;
+}
+
+int getgid()
+{
+	return 0;
+}
+/*by ketor END*/
 
 #ifdef __cplusplus
 }

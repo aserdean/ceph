@@ -74,7 +74,7 @@ cmake -D CMAKE_PREFIX_PATH=$depsDirs \
       -D WITH_PYTHON2=OFF -D WITH_PYTHON3=ON \
       -D MGR_PYTHON_VERSION=$pyVersion \
       -D WITH_RDMA=OFF -D WITH_OPENLDAP=OFF \
-      -D WITH_GSSAPI=OFF -D WITH_FUSE=OFF -D WITH_XFS=OFF \
+      -D WITH_GSSAPI=OFF -D WITH_FUSE=ON -D WITH_XFS=OFF \
       -D WITH_BLUESTORE=OFF -D WITH_LEVELDB=OFF \
       -D WITH_LTTNG=OFF -D WITH_BABELTRACE=OFF \
       -D WITH_SYSTEM_BOOST=ON -D WITH_MGR=OFF \
@@ -87,6 +87,8 @@ cmake -D CMAKE_PREFIX_PATH=$depsDirs \
       -D Backtrace_INCLUDE_DIR="$backtraceDir/include" \
       -D Backtrace_LIBRARY="$backtraceDir/lib/libbacktrace.dll.a" \
       -D Boost_THREADAPI="pthread" \
+      -D FUSE_INCLUDE_DIRS="/home/ubuntu/alin/x64/Msys2/include" \
+      -D FUSE_LIBRARIES="/home/ubuntu/alin/x64/Msys2/lib" \
       -G "$generatorUsed" \
       $CEPH_DIR  2>&1 | tee "${BUILD_DIR}/cmake.log"
 

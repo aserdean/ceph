@@ -1,0 +1,57 @@
+diff --git a/src/client/Client.cc b/src/client/Client.cc
+index e042539c3b..297b1d1fc7 100644
+--- a/src/client/Client.cc
++++ b/src/client/Client.cc
+@@ -124,6 +124,52 @@
+ 
+ #define DEBUG_GETATTR_CAPS (CEPH_CAP_XATTR_SHARED)
+ 
++/*by ketor START*/
++/* for posix fcntl() and lockf() */
++#ifndef F_RDLCK
++#define F_RDLCK		0
++#define F_WRLCK		1
++#define F_UNLCK		2
++#endif
++
++#define O_NOFOLLOW 00400000 /* don't follow links */
++
++/* operations for bsd flock(), also used by the kernel implementation */
++#define LOCK_SH		1	/* shared lock */
++#define LOCK_EX		2	/* exclusive lock */
++#define LOCK_NB		4	/* or'd with one of the above to prevent
++				   blocking */
++#define LOCK_UN		8	/* remove lock */
++
++#define LOCK_MAND	32	/* This is a mandatory flock ... */
++#define LOCK_READ	64	/* which allows concurrent read operations */
++#define LOCK_WRITE	128	/* which allows concurrent write operations */
++#define LOCK_RW		192	/* which allows concurrent read & write ops */
++
++typedef long		__kernel_off_t;
++typedef int		__kernel_pid_t;
++
++struct flock {
++	short	l_type;
++	short	l_whence;
++	__kernel_off_t	l_start;
++	__kernel_off_t	l_len;
++	__kernel_pid_t	l_pid;
++};
++#define EDQUOT                  WSAEDQUOT
++#define S_ISTYPE(m, TYPE) ((m & S_IFMT) == TYPE)
++/* Both DOS and Windows support these file types */
++#define S_ISCHR(m)  S_ISTYPE(m, S_IFCHR)  /* Test for a character device */
++#define S_ISDIR(m)  S_ISTYPE(m, S_IFDIR)  /* Test for a directory */
++#define S_ISREG(m)  S_ISTYPE(m, S_IFREG)  /* Test for a regular file */
++#define S_ISLNK(m)  S_ISTYPE(m, S_IFLNK)  /* Test for a symbolic link */
++#define S_ISUID    04000    /* Set UID bit                                     */
++#define S_ISGID    02000    /* Set-group-ID bit                                */
++#define S_ISVTX    01000    /* Sticky bit                                      */
++#define MAXSYMLINKS  65000
++/*by ketor END*/
++ 
++
+ void client_flush_set_callback(void *p, ObjectCacher::ObjectSet *oset)
+ {
+   Client *client = static_cast<Client*>(p);

@@ -265,8 +265,10 @@ static int rbdfs_getattr(const char *path, struct stat *stbuf)
 		stbuf->st_uid = getuid();
 		stbuf->st_gid = getgid();
 		stbuf->st_size = 1024;
+#ifndef _WIN32
 		stbuf->st_blksize = 1024;
 		stbuf->st_blocks = 1;
+#endif
 		stbuf->st_atime = now;
 		stbuf->st_mtime = now;
 		stbuf->st_ctime = now;
@@ -289,8 +291,10 @@ static int rbdfs_getattr(const char *path, struct stat *stbuf)
 	stbuf->st_uid = getuid();
 	stbuf->st_gid = getgid();
 	stbuf->st_size = rbdsize(fd);
+#ifndef _WIN32
 	stbuf->st_blksize = rbdblksize(fd);
 	stbuf->st_blocks = rbdblkcnt(fd);
+#endif
 	stbuf->st_atime = now;
 	stbuf->st_mtime = now;
 	stbuf->st_ctime = now;

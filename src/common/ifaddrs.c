@@ -4,11 +4,13 @@
 #include <ws2tcpip.h>
 #include <ifaddrs.h>
 
+#include "include/compat.h"
+
 int getifaddrs(struct ifaddrs **ifap)
 {
 	ULONG subnet = 0;
 	PULONG mask = &subnet;
-	DWORD size, res, i = 0;
+	DWORD size, res = 0;
 	int ret;
 	PIP_ADAPTER_ADDRESSES adapter_addresses, aa;
 	PIP_ADAPTER_UNICAST_ADDRESS ua;

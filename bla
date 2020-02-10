@@ -1,0 +1,15 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 3870fb3c9b..4168ec6d2f 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -314,6 +314,10 @@ if(fmt_FOUND)
+   include_directories(SYSTEM "${fmt_INCLUDE_DIR}")
+ else()
+   message(STATUS "Could not find fmt, will build it")
++  if(WIN32)
++	  message(STATUS "Could not find fmt, will build itWIN32")
++	  remove_definitions(-D_POSIX_)
++  endif()
+   add_subdirectory(fmt)
+   include_directories(SYSTEM "${CMAKE_SOURCE_DIR}/src/fmt/include")
+ endif()

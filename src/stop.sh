@@ -49,6 +49,7 @@ do_umountall() {
     #SRC_MNT_ARRAY[2] = IP:PORT:/ #Could be mounted using single mon IP
     #SRC_MNT_ARRAY[3] = MNT_POINT2
     #...
+    echo "BLA"
     SRC_MNT_ARRAY=($(findmnt -t ceph -n --raw --output=source,target))
     LEN_SRC_MNT_ARRAY=${#SRC_MNT_ARRAY[@]}
 

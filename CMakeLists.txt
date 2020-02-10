@@ -42,6 +42,7 @@ endif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 if(WIN32)
   set(WIN32_WINNT "0x0A00" CACHE STRING "Targeted Windows version.")
   add_definitions(-D_WIN32_WINNT=${WIN32_WINNT})
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-narrowing")
 endif()
 
 if(MINGW)

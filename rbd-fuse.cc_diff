@@ -1,0 +1,41 @@
+diff --git a/src/rbd_fuse/rbd-fuse.cc b/src/rbd_fuse/rbd-fuse.cc
+index 64398faae4..43a24756d5 100644
+--- a/src/rbd_fuse/rbd-fuse.cc
++++ b/src/rbd_fuse/rbd-fuse.cc
+@@ -26,6 +26,14 @@
+ #include <sys/param.h>
+ #endif
+ 
++#if defined(_WIN32)
++#include <sys/stat.h>
++#endif
++
++#if defined(MINGW)
++#include <_mingw_stat64.h>
++#endif
++
+ #include "include/compat.h"
+ #include "include/rbd/librbd.h"
+ #include "include/ceph_assert.h"
+@@ -265,8 +273,8 @@ static int rbdfs_getattr(const char *path, struct stat *stbuf)
+ 		stbuf->st_uid = getuid();
+ 		stbuf->st_gid = getgid();
+ 		stbuf->st_size = 1024;
+-		stbuf->st_blksize = 1024;
+-		stbuf->st_blocks = 1;
++		//stbuf->st_blksize = 1024;
++		//stbuf->st_blocks = 1;
+ 		stbuf->st_atime = now;
+ 		stbuf->st_mtime = now;
+ 		stbuf->st_ctime = now;
+@@ -289,8 +297,8 @@ static int rbdfs_getattr(const char *path, struct stat *stbuf)
+ 	stbuf->st_uid = getuid();
+ 	stbuf->st_gid = getgid();
+ 	stbuf->st_size = rbdsize(fd);
+-	stbuf->st_blksize = rbdblksize(fd);
+-	stbuf->st_blocks = rbdblkcnt(fd);
++	//stbuf->st_blksize = rbdblksize(fd);
++	//stbuf->st_blocks = rbdblkcnt(fd);
+ 	stbuf->st_atime = now;
+ 	stbuf->st_mtime = now;
+ 	stbuf->st_ctime = now;
