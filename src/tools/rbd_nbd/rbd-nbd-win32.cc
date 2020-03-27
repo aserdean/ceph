@@ -64,6 +64,8 @@
 
 #include "mon/MonClient.h"
 
+#define TMP_BUFSIZE 4096
+
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_rbd
 #undef dout_prefix
@@ -72,6 +74,8 @@
 static BOOL WINAPI ConsoleHandlerRoutine(DWORD dwCtrlType);
 using boost::locale::conv::utf_to_utf;
 static HANDLE write_handle;  /* End of pipe to write to parent. */
+bool detach;                 /* Was --detach specified? */
+static bool detached;        /* Running as the child process. */
 
 /* Handle to the Services Manager and the created service. */
 static SC_HANDLE manager, service;
@@ -82,92 +86,387 @@ static SERVICE_STATUS_HANDLE hstatus;
 /* Hold the service's current status. */
 static SERVICE_STATUS service_status;
 
-/* Hold the arguments sent to the main function. */
-static int sargc;
-static char*** sargvp;
+static bool service_started;         /* Have we dispatched service to start? */
 
-static void check_service(void);
-static void handle_scm_callback(void);
+static void check_service(const char* program_name);
 static void init_service_status(void);
-static void set_config_failure_actions(void);
-extern int main(int argc, char* argv[]);
+static bool detach_process(int argc, const char* argv[]);
+static void service_complete(void);
+void service_stop();
+extern main(int argc, const char *argv[]);
+
+
+struct Config {
+    int nbds_max = 0;
+    int max_part = 255;
+    int timeout = -1;
+
+    bool exclusive = false;
+    bool readonly = false;
+    bool set_max_part = false;
+
+    intptr_t detached = 0;
+    int service = false;
+
+    HKEY hkey;
+
+    std::string poolname;
+    std::string nsname;
+    std::string imgname;
+    std::string snapname;
+    std::string devpath;
+
+    std::string format;
+    bool pretty_format = false;
+};
+
+
+static char output_last_error[TMP_BUFSIZE];
+
+HKEY OpenKey(HKEY hRootKey, LPCTSTR strKey, bool create_value);
+int DeleteKey(HKEY hRootKey, LPCTSTR strKey);
+int SetVal(HKEY hKey, LPCTSTR lpValue, DWORD data);
+int SetValString(HKEY hKey, LPCTSTR lpValue, std::string data);
+int GetVal(HKEY hKey, LPCTSTR lpValue, DWORD* value);
+int GetValString(HKEY hKey, LPCTSTR lpValue, std::string& value);
+int list_all_registry_config();
+
+BOOL IsProcessRunning(DWORD pid)
+{
+    HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    DWORD ret = WaitForSingleObject(process, 0);
+    CloseHandle(process);
+    return ret == WAIT_TIMEOUT;
+}
+
+/* Sets up a following call to service_start() to detach from the foreground
+ * session, running this process in the background.  */
+void
+set_detach(void)
+{
+    detach = true;
+}
+
+char* ovs_lasterror_to_string(void)
+{
+    char* buffer = output_last_error;
+    DWORD error = GetLastError();
+
+    if (error == 0) {
+        return (char *)"Success";
+    }
+
+    FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL, error, 0, buffer, TMP_BUFSIZE, NULL);
+    return buffer;
+}
+
+char* ovs_error_to_string(DWORD error)
+{
+    char* buffer = output_last_error;
+    std::cout << "was in ovs_error_to_string" << std::endl;
+
+    if (error == 0) {
+        return (char*)"Success";
+    }
+
+    FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL, error, 0, buffer, TMP_BUFSIZE, NULL);
+    return buffer;
+}
+
 void
 control_handler(DWORD request);
+void run_service(void)
+{
+    init_service_status();
+    /* Register the control handler. This function is called by the service
+     * manager to stop the service. */
+    hstatus = RegisterServiceCtrlHandler("rbd-nbd",
+        (LPHANDLER_FUNCTION)control_handler);
+    if (!hstatus) {
+        return -EINVAL;
+    }
+
+    /* Enable default error mode so we can take advantage of WER
+     * (Windows Error Reporting) crash dumps.
+     * Being a service it does not allow for WER window pop-up.
+     * XXX implement our on crash dump collection mechanism. */
+    SetErrorMode(0);
+
+    list_all_registry_config();
+
+    service_complete();
+}
 /* Registers the call-back and configures the actions in case of a failure
  * with the Windows services manager. */
-void
-service_start(int *argcp, char **argvp[], char* program_name)
+int
+service_start(int *argcp, const char **argvp[], const char* program_name)
 {
-    int argc = *argcp;
-    char **argv = *argvp;
-    int i;
     SERVICE_TABLE_ENTRY service_table[] = {
-        {(LPTSTR)program_name, (LPSERVICE_MAIN_FUNCTION)main},
+        {(LPTSTR)program_name, (LPSERVICE_MAIN_FUNCTION)run_service},
         {NULL, NULL}
     };
+    std::ofstream myfile;
+    myfile.open("c:\\example.txt");
+    myfile << "I was in service_start.\n";
+    myfile.close();
 
-    /* 'service_started' is 'false' when service_start() is called the first
-     * time.  It is 'true', when it is called the second time by the Windows
-     * services manager. */
-    if (service_started) {
-        init_service_status();
-
-        /* Register the control handler. This function is called by the service
-         * manager to stop the service. */
-        hstatus = RegisterServiceCtrlHandler(program_name,
-                                         (LPHANDLER_FUNCTION)control_handler);
-        if (!hstatus) {
-            //char *msg_buf = ovs_lasterror_to_string();
-            std::err << "Failed to register the service control handler" << std::endl;
-              //          msg_buf);
-        }
-
-        /* When the service control manager does the call back, it does not
-         * send the same arguments as sent to the main function during the
-         * service start. So, use the arguments passed over during the first
-         * time. */
-        *argcp = sargc;
-        *argvp = *sargvp;
-
-        /* Enable default error mode so we can take advantage of WER
-         * (Windows Error Reporting) crash dumps.
-         * Being a service it does not allow for WER window pop-up.
-         * XXX implement our on crash dump collection mechanism. */
-        SetErrorMode(0);
-
-        return;
-    }
-
-    /* A reference to arguments passed to the main function the first time.
-     * We need it after the call-back from service control manager. */
-    sargc = argc;
-    sargvp = argvp;
-
-    for (i = 0; i < argc; i ++) {
-        if (!strcmp(argv[i], "--service")) {
-            service_create = true;
-        }
-    }
-
-    /* If '--service' is not a command line option, run in foreground. */
-    if (!service_create) {
-        return;
-    }
-
-    /* If we have been configured to run as a service, then that service
-     * should already have been created either manually or through a start up
-     * script. */
-    check_service();
-
+    check_service("rbd-nbd");
     service_started = true;
 
     /* StartServiceCtrlDispatcher blocks and returns after the service is
      * stopped. */
     if (!StartServiceCtrlDispatcher(service_table)) {
-        char *msg_buf = ovs_lasterror_to_string();
-        VLOG_FATAL("Failed at StartServiceCtrlDispatcher (%s)", msg_buf);
+        std::cerr << "Failed at StartServiceCtrlDispatcher: " << ovs_lasterror_to_string() << std::endl;
+        return -EINVAL;
     }
     exit(0);
+}
+
+int map_registry_config(Config* cfg)
+{
+    std::string strKey{ "SYSTEM\\CurrentControlSet\\Services\\rbd-nbd\\" };
+    strKey.append(cfg->devpath);
+    HKEY hKey = OpenKey(HKEY_LOCAL_MACHINE, strKey.c_str(), true);
+    if (!hKey) {
+        return -EINVAL;
+    }
+    cfg->hkey = hKey;
+    if (SetVal(hKey, "pid", getpid()) ||
+        SetValString(hKey, "devpath", cfg->devpath) ||
+        SetValString(hKey, "poolname", cfg->poolname) ||
+        SetValString(hKey, "nsname", cfg->nsname) ||
+        SetValString(hKey, "imgname", cfg->imgname) ||
+        SetValString(hKey, "snapname", cfg->snapname) ||
+        SetValString(hKey, "command_line", GetCommandLine())) {
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+int unmap_registry_config(Config* cfg)
+{
+    std::string strKey{ "SYSTEM\\CurrentControlSet\\Services\\rbd-nbd\\" };
+    strKey.append(cfg->devpath);
+    return DeleteKey(HKEY_LOCAL_MACHINE, strKey.c_str());
+}
+
+#define MAX_KEY_LENGTH 255
+#define MAX_VALUE_NAME 16383
+
+void QueryKey(HKEY hKey, Config* cfg)
+{
+    std::string temp;
+    if (!GetValString(hKey, "devpath", temp)) {
+        cfg->devpath = temp;
+    }
+    if (!GetValString(hKey, "poolname", temp)) {
+        cfg->poolname = temp;
+    }
+    if (!GetValString(hKey, "nsname", temp)) {
+        cfg->nsname = temp;
+    }
+    if (!GetValString(hKey, "imgname", temp)) {
+        cfg->imgname = temp;
+    }
+    if (!GetValString(hKey, "snapname", temp)) {
+        cfg->snapname = temp;
+    }
+}
+
+void QueryKeyEx(HKEY hKey) 
+{ 
+    CHAR    achKey[MAX_KEY_LENGTH];   // buffer for subkey name
+    DWORD    cbName;                   // size of name string 
+    DWORD    cSubKeys=0;               // number of subkeys 
+    FILETIME ftLastWriteTime;      // last write time 
+ 
+    DWORD i, retCode; 
+    std::ofstream myfile;
+ 
+    // Get the class name and the value count. 
+    retCode = RegQueryInfoKey(
+        hKey,                    // key handle 
+        NULL,                // buffer for class name 
+        NULL,           // size of class string 
+        NULL,                    // reserved 
+        &cSubKeys,               // number of subkeys 
+        NULL,            // longest subkey size 
+        NULL,            // longest class string 
+        NULL,                // number of values for this key 
+        NULL,            // longest value name 
+        NULL,         // longest value data 
+        NULL,   // security descriptor 
+        NULL);       // last write time 
+ 
+    // Enumerate the subkeys, until RegEnumKeyEx fails.
+    
+    if (cSubKeys)
+    {
+        myfile.open("c:\\run_service.txt");
+        myfile << "\nNumber of subkeys:" << cSubKeys << "\n";
+
+        for (i=0; i<cSubKeys; i++) 
+        { 
+            cbName = MAX_KEY_LENGTH;
+            retCode = RegEnumKeyEx(hKey, i,
+                     achKey, 
+                     &cbName, 
+                     NULL, 
+                     NULL, 
+                     NULL, 
+                     &ftLastWriteTime); 
+            if (retCode == ERROR_SUCCESS) 
+            {           
+                std::string temp{"SYSTEM\\CurrentControlSet\\Services\\rbd-nbd\\"};
+                temp.append(achKey);
+                myfile << "\n" << temp.c_str() << "\n";
+                HKEY sub_key = OpenKey(HKEY_LOCAL_MACHINE, temp.c_str(), true);
+                if (sub_key) {
+                    std::string command;
+                    myfile << "\n" << "GetValString" << "\n";
+                    if (!GetValString(sub_key, "command_line", command)) {
+                        myfile << "\n" << command.c_str() << "\n";
+                        STARTUPINFO si;
+                        PROCESS_INFORMATION pi;
+                        int error;
+
+                        ZeroMemory(&si, sizeof(si));
+                        GetStartupInfo(&si);
+                        ZeroMemory(&pi, sizeof(pi));
+                        si.dwFlags |= STARTF_USESTDHANDLES;
+                        /* Create a detached child */
+                        error = CreateProcess(NULL, command.c_str(), NULL, NULL, TRUE, DETACHED_PROCESS,
+                            NULL, NULL, &si, &pi);
+                        if (!error) {
+                            myfile << "CreateProcess failed: " << ovs_lasterror_to_string() << std::endl;
+                        }
+                    }
+                }
+            }
+        }
+        myfile.close();
+    } 
+}
+
+int list_registry_config(char* devpath, Config* cfg)
+{
+    std::string strKey{ "SYSTEM\\CurrentControlSet\\Services\\rbd-nbd\\" };
+    strKey.append(devpath);
+    HKEY hKey = OpenKey(HKEY_LOCAL_MACHINE, strKey.c_str(), false);
+    if (!hKey) {
+        return -EINVAL;
+    }
+    QueryKey(hKey, cfg);
+
+    return 0;
+}
+
+int list_all_registry_config()
+{
+    std::string strKey{ "SYSTEM\\CurrentControlSet\\Services\\rbd-nbd\\" };
+    HKEY hKey = OpenKey(HKEY_LOCAL_MACHINE, strKey.c_str(), false);
+    if (!hKey) {
+        return -EINVAL;
+    }
+    QueryKeyEx(hKey);
+
+    return 0;
+}
+
+HKEY OpenKey(HKEY hRootKey, LPCTSTR strKey, bool create_value)
+{
+    HKEY hKey = NULL;
+    DWORD status = RegOpenKeyEx(hRootKey, strKey, 0, KEY_ALL_ACCESS, &hKey);
+
+    if (status == ERROR_FILE_NOT_FOUND && create_value)
+    {
+        std::cout << "Creating registry key: " << strKey << std::endl;
+        status = RegCreateKeyEx(hRootKey, strKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &hKey, NULL);
+    }
+
+    if (ERROR_SUCCESS != status) {
+        std::cout << "Error: " << ovs_error_to_string(status) << ". Could not open registry key: " << strKey << std::endl;
+    }
+
+    return hKey;
+}
+
+int DeleteKey(HKEY hRootKey, LPCTSTR strKey)
+{
+    DWORD status = RegDeleteKeyEx(hRootKey, strKey, KEY_WOW64_64KEY, 0);
+
+    if (status == ERROR_FILE_NOT_FOUND)
+    {
+        std::cout << "Registry key : " << strKey << " does not exist."<< std::endl;
+        return 0;
+    }
+
+    if (ERROR_SUCCESS != status) {
+        std::cout << "Error: " << ovs_error_to_string(status) << ". Could not delete registry key: " << strKey << std::endl;
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+int SetVal(HKEY hKey, LPCTSTR lpValue, DWORD data)
+{
+    DWORD status = RegSetValueEx(hKey, lpValue, 0, REG_DWORD, (LPBYTE)&data, sizeof(DWORD));
+    if (ERROR_SUCCESS != status) {
+        std::cout << "Error: " << ovs_error_to_string(status) << ". Could not set registry value: " << (char*)lpValue << std::endl;
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+int SetValString(HKEY hKey, LPCTSTR lpValue, std::string data)
+{
+    DWORD status = RegSetValueEx(hKey, lpValue, 0, REG_SZ, (LPBYTE)data.c_str(), data.length());
+    if (ERROR_SUCCESS != status) {
+        std::cout << "Error: " << ovs_error_to_string(status) << ". Could not set registry value: " << (char*)lpValue << std::endl;
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+int GetVal(HKEY hKey, LPCTSTR lpValue, DWORD* value)
+{
+    DWORD data;
+    DWORD size = sizeof(data);
+    DWORD type = REG_DWORD;
+    DWORD status = RegQueryValueEx(hKey, lpValue, NULL, &type, (LPBYTE)&data, &size);
+    if (ERROR_SUCCESS != status) {
+        std::cout << "Error: " << ovs_error_to_string(status) << ". Could not set registry value: " << (char*)lpValue << std::endl;
+        return -EINVAL;
+    }
+    *value = data;
+
+    return 0;
+}
+
+int GetValString(HKEY hKey, LPCTSTR lpValue, std::string& value)
+{
+    std::string data{""};
+    DWORD size = 0;
+    DWORD type = REG_SZ;
+    DWORD status = RegQueryValueEx(hKey, lpValue, NULL, &type, (LPBYTE)data.c_str(), &size);
+    if (ERROR_MORE_DATA == status) {
+        data.resize(size);
+        status = RegQueryValueEx(hKey, lpValue, NULL, &type, (LPBYTE)data.c_str(), &size);
+    }
+    
+    if (ERROR_SUCCESS != status) {
+        std::cout << "Error: " << ovs_error_to_string(status) << ". Could not set registry value: " << (char*)lpValue << std::endl;
+        return -EINVAL;
+    }
+    value.assign(data.c_str());
+
+    return 0;
 }
 
 /* This function is registered with the Windows services manager through
@@ -181,7 +480,6 @@ control_handler(DWORD request)
     case SERVICE_CONTROL_SHUTDOWN:
         service_status.dwCurrentState = SERVICE_STOPPED;
         service_status.dwWin32ExitCode = NO_ERROR;
-        SetEvent(wevent);
         SetServiceStatus(hstatus, &service_status);
         break;
 
@@ -199,9 +497,6 @@ should_service_stop(void)
         if (service_status.dwCurrentState != SERVICE_RUNNING) {
             return true;
         }
-        else {
-            poll_wevent_wait(wevent);
-        }
     }
     return false;
 }
@@ -214,10 +509,6 @@ service_stop()
     if (!service_started) {
         return;
     }
-    fatal_signal_atexit_handler();
-
-    ResetEvent(wevent);
-    CloseHandle(wevent);
 
     service_status.dwCurrentState = SERVICE_STOPPED;
     service_status.dwWin32ExitCode = NO_ERROR;
@@ -237,20 +528,17 @@ service_complete(void)
 
 /* Check whether 'program_name' has been created as a service. */
 static void
-check_service()
+check_service(const char* program_name)
 {
     /* Establish a connection to the local service control manager. */
     manager = OpenSCManager(NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE);
     if (!manager) {
-        char* msg_buf = ovs_lasterror_to_string();
-        VLOG_FATAL("Failed to open the service control manager (%s).",
-            msg_buf);
+        std::cerr << "Failed to open the service control manager: " << ovs_lasterror_to_string() << std::endl;
     }
 
     service = OpenService(manager, program_name, SERVICE_ALL_ACCESS);
     if (!service) {
-        char* msg_buf = ovs_lasterror_to_string();
-        VLOG_FATAL("Failed to open service (%s).", msg_buf);
+    std::cerr << "Failed to open service: " << ovs_lasterror_to_string() << std::endl;
     }
 }
 
@@ -281,42 +569,6 @@ init_service_status()
     service_status.dwWaitHint = 1000;
 }
 
-/* In case of an unexpected termination, configure the action to be
- * taken. */
-static void
-set_config_failure_actions()
-{
-    /* In case of a failure, restart the process the first two times
-     * After 'dwResetPeriod', the failure count is reset. */
-    SC_ACTION fail_action[3] = {
-        {SC_ACTION_RESTART, 0},
-        {SC_ACTION_RESTART, 0},
-        {SC_ACTION_NONE, 0}
-    };
-    SERVICE_FAILURE_ACTIONS service_fail_action;
-
-    /* Reset failure count after (in seconds). */
-    service_fail_action.dwResetPeriod = 10;
-
-    /* Reboot message. */
-    service_fail_action.lpRebootMsg = NULL;
-
-    /* The command line of the process. */
-    service_fail_action.lpCommand = NULL;
-
-    /* Number of elements in 'fail_actions'. */
-    service_fail_action.cActions = sizeof(fail_action) / sizeof(fail_action[0]);
-
-    /* A pointer to an array of SC_ACTION structures. */
-    service_fail_action.lpsaActions = fail_action;
-
-    if (!ChangeServiceConfig2(service, SERVICE_CONFIG_FAILURE_ACTIONS,
-        &service_fail_action)) {
-        char* msg_buf = ovs_lasterror_to_string();
-        VLOG_FATAL("Failed to configure service fail actions (%s).", msg_buf);
-    }
-}
-
 /* When a daemon is passed the --detach option, we create a new
  * process and pass an additional non-documented option called --pipe-handle.
  * Through this option, the parent passes one end of a pipe handle. */
@@ -331,10 +583,12 @@ daemonize_complete(void)
 {
     /* If running as a child because '--detach' option was specified,
      * communicate with the parent to inform that the child is ready. */
-    int error;
-    error = WriteFile(write_handle, "a", 1, NULL, NULL);
-    if (!error) {
-        std::cerr << "Failed to communicate with the parent" << std::endl;
+    if (detached) {
+        int error;
+        error = WriteFile(write_handle, "a", 1, NULL, NULL);
+        if (!error) {
+            std::cerr << "Failed to communicate with the parent: " << ovs_lasterror_to_string() << std::endl;
+        }
     }
 }
 
@@ -356,6 +610,7 @@ detach_process(int argc, const char* argv[])
     for (i = 0; i < argc; i++) {
         if (!strncmp(argv[i], "--pipe-handle", 13)) {
             /* If running as a child, return. */
+            detached = true;
             return true;
         }
     }
@@ -369,7 +624,7 @@ detach_process(int argc, const char* argv[])
     /* Create an anonymous pipe to communicate with the child. */
     error = CreatePipe(&read_pipe, &write_pipe, &sa, 0);
     if (!error) {
-        std::cerr << "CreatePipe failed" << std::endl;
+        std::cerr << "CreatePipe failed: " << ovs_lasterror_to_string() << std::endl;
     }
 
     GetStartupInfo(&si);
@@ -382,7 +637,7 @@ detach_process(int argc, const char* argv[])
     error = CreateProcess(NULL, buffer, NULL, NULL, TRUE, DETACHED_PROCESS,
         NULL, NULL, &si, &pi);
     if (!error) {
-        std::cerr << "CreateProcess failed" << std::endl;
+        std::cerr << "CreateProcess failed: " << ovs_lasterror_to_string() << std::endl;
     }
 
     /* Close one end of the pipe in the parent. */
@@ -391,7 +646,7 @@ detach_process(int argc, const char* argv[])
     /* Block and wait for child to say it is ready. */
     error = ReadFile(read_pipe, &ch, 1, NULL, NULL);
     if (!error) {
-        std::cerr << "Failed to read from child. GLA = " << GetLastError() << std::endl;
+        std::cerr << "Failed to read from child: " << ovs_lasterror_to_string() << std::endl;
     }
     /* The child has successfully started and is ready. */
     exit(0);
@@ -451,27 +706,6 @@ BOOL WINAPI ConsoleHandlerRoutine(DWORD dwCtrlType)
     return true;
 }
 
-struct Config {
-  int nbds_max = 0;
-  int max_part = 255;
-  int timeout = -1;
-
-  bool exclusive = false;
-  bool readonly = false;
-  bool set_max_part = false;
-
-  intptr_t detached = 0;
-
-  std::string poolname;
-  std::string nsname;
-  std::string imgname;
-  std::string snapname;
-  std::string devpath;
-
-  std::string format;
-  bool pretty_format = false;
-};
-
 static void usage()
 {
   std::cout << "Usage: rbd-nbd [options] map <image-or-snap-spec>  Map an image to nbd device\n"
@@ -497,7 +731,8 @@ enum Command {
   None,
   Connect,
   Disconnect,
-  List
+  List,
+  Service
 };
 
 static Command cmd = None;
@@ -986,12 +1221,12 @@ static int do_map(int argc, const char *argv[], Config *cfg)
 
   librbd::image_info_t info;
 
-  NBDServer *server;
+  NBDServer *server = NULL;
 
   vector<const char*> args;
   argv_to_vec(argc, argv, args);
   if (args.empty()) {
-    cerr << argv[0] << ": -h or --help for usage" << std::endl;
+    std::cerr << argv[0] << ": -h or --help for usage" << std::endl;
     exit(1);
   }
   if (ceph_argparse_need_usage(args)) {
@@ -1036,7 +1271,7 @@ static int do_map(int argc, const char *argv[], Config *cfg)
   if (cfg->exclusive) {
     r = image.lock_acquire(RBD_LOCK_MODE_EXCLUSIVE);
     if (r < 0) {
-      cerr << "rbd-nbd: failed to acquire exclusive lock: " << cpp_strerror(r)
+      std::cerr << "rbd-nbd: failed to acquire exclusive lock: " << cpp_strerror(r)
            << std::endl;
       goto close_fd;
     }
@@ -1059,7 +1294,7 @@ static int do_map(int argc, const char *argv[], Config *cfg)
 
   if (info.size > _UI64_MAX) {
     r = -EFBIG;
-    cerr << "rbd-nbd: image is too large (" << byte_u_t(info.size)
+    std::cerr << "rbd-nbd: image is too large (" << byte_u_t(info.size)
          << ", max is " << byte_u_t(_UI64_MAX) << ")" << std::endl;
     goto close_fd;
   }
@@ -1078,6 +1313,9 @@ static int do_map(int argc, const char *argv[], Config *cfg)
       goto close_ret;
   }
   atexit(UnmapAtExit);
+  r = map_registry_config(cfg);
+  if (r < 0)
+      goto close_nbd;
 
   server = start_server(fd, image);
 
@@ -1121,10 +1359,10 @@ static int do_unmap(Config *cfg)
 
   r = WnbdUnmap((char *)cfg->devpath.c_str());
   if (r != 0) {
-      cerr << "rbd-nbd: failed to open device: " << cfg->devpath << std::endl;
+      std::cerr << "rbd-nbd: failed to open device: " << cfg->devpath << std::endl;
       return -r;
   }
-
+  r = unmap_registry_config(cfg);
   return r;
 }
 
@@ -1195,7 +1433,7 @@ static int do_list_mapped_devices(const std::string &format, bool pretty_format)
           WQL.append(WideString);
           WQL.append(L"'");
           std::vector<DiskInfo> d;
-          std::vector<Win32_Proc> d_proc;
+          bool verified = false;
           DiskInfo temp;
           BSTR bstr_sql = SysAllocString(WQL.c_str());
           QueryWMI(bstr_sql, d);
@@ -1204,87 +1442,44 @@ static int do_list_mapped_devices(const std::string &format, bool pretty_format)
           if (d.size() != 1) {
               std::cerr << "could not get disk number for current device: " << iterator.InstanceName << std::endl;
           } else {
-              WideString = to_wstring(std::to_string(iterator.Pid));
-              WQL = L"SELECT ProcessId,CommandLine FROM Win32_Process WHERE ProcessId = '";
-              WQL.append(WideString);
-              WQL.append(L"'");
-              bstr_sql = SysAllocString(WQL.c_str());
-              QueryWMI(bstr_sql, d_proc);
-              SysFreeString(bstr_sql);
-              if (d_proc.size() != 1) {
-                  std::cerr << "could not get command line for process: " << std::to_string(iterator.Pid) << std::endl;
-              } else {
-                  std::vector<const char*> args;
+              temp = d[0];
+              list_registry_config(iterator.InstanceName, &cfg);
+              if (IsProcessRunning(iterator.Pid)) {
+                  verified = true;
+              }
+          }
 
-                  LPWSTR *szArglist;
-                  int nArgs;
-                  int i;
-                  temp = d[0];
-
-                  szArglist = CommandLineToArgvW(d_proc[0].CommandLine.c_str(), &nArgs);
-                  if( NULL == szArglist )
-                  {
-                    std::cerr << "CommandLineToArgvW failed" << std::endl;
-                    return -EINVAL;
-                  }
-                   std::string* tempArgs = new std::string[nArgs];
-                   for( i=1; i<nArgs; i++) {
-                       std::string temp = to_string(szArglist[i]);
-                       tempArgs[i] = temp;
-                       args.push_back(tempArgs[i].c_str());
-                   }
-
-                    std::ostringstream err_msg;
-                    Command command;
-                    int r = parse_args(args, &err_msg, &command, &cfg);
-                    if (r < 0) {
-                      std::cerr << "parse_args failed" << std::endl;
-                      return -EINVAL;
-                    }
-
-                    if (command != Connect) {
-                      std::cerr << "Connect failed" << std::endl;
-                      return -EINVAL;
-                    }
-                    LocalFree(szArglist);
-                }
-            }
-
-            if (f) {
+          if (f) {
               f->open_object_section("device");
-              if (d.size() == 1) {
+              if (verified) {
                 f->dump_int("id", iterator.Pid);
-                f->dump_string("pool", cfg.poolname);
-                f->dump_string("namespace", cfg.nsname);
-                f->dump_string("image", cfg.imgname);
-                f->dump_string("snap", cfg.snapname);
               } else {
                 f->dump_int("id", INT_MAX);
-                f->dump_string("pool", "");
-                f->dump_string("namespace", "");
-                f->dump_string("image", "");
-                f->dump_string("snap", "");
               }
-              f->dump_string("device", iterator.InstanceName);
-              if (d_proc.size() == 1) {
+              f->dump_string("device", cfg.devpath);
+              f->dump_string("pool", cfg.poolname);
+              f->dump_string("namespace", cfg.nsname);
+              f->dump_string("image", cfg.imgname);
+              f->dump_string("snap", cfg.snapname);
+              if (d.size() == 1) {
                 f->dump_int("disk_number", temp.Index);
               } else {
-                  f->dump_int("disk_number", INT_MAX);
+                f->dump_int("disk_number", INT_MAX);
               }
               f->close_section();
-            } else {
+          } else {
               should_print = true;
               if (cfg.snapname.empty()) {
                   cfg.snapname = "-";
               }
-              if (d.size() == 1 && d_proc.size() == 1) {
+              if (verified) {
                   tbl << static_cast<int>(iterator.Pid) << cfg.poolname << cfg.nsname << cfg.imgname << cfg.snapname
                       << iterator.InstanceName << static_cast<int>(temp.Index)  << TextTable::endrow;
               } else {
                   tbl << INT_MAX << " " << " " << " " << " "
                       << iterator.InstanceName << INT_MAX << TextTable::endrow;
               }
-            }
+          }
       }
       ReleaseWMI();
   }
@@ -1355,6 +1550,10 @@ static int parse_args(vector<const char*>& args, std::ostream *err_msg,
       cmd = Disconnect;
     } else if (strcmp(*args.begin(), "list-mapped") == 0) {
       cmd = List;
+    } else if (strcmp(*args.begin(), "list") == 0) {
+      cmd = List;
+    } else if (strcmp(*args.begin(), "service") == 0) {
+      cmd = Service;
     } else {
       *err_msg << "rbd-nbd: unknown command: " <<  *args.begin();
       return -EINVAL;
@@ -1417,17 +1616,16 @@ static int rbd_nbd(int argc, const char *argv[])
     std::cout << pretty_version_to_str() << std::endl;
     return 0;
   } else if (r < 0) {
-    cerr << err_msg.str() << std::endl;
+    std::cerr << err_msg.str() << std::endl;
     return r;
   }
 
   switch (cmd) {
     case Connect:
       if (cfg.imgname.empty()) {
-        cerr << "rbd-nbd: image name was not specified" << std::endl;
+        std::cerr << "rbd-nbd: image name was not specified" << std::endl;
         return -EINVAL;
       }
-
       r = do_map(argc, argv, &cfg);
       if (r < 0)
         return -EINVAL;
@@ -1441,6 +1639,11 @@ static int rbd_nbd(int argc, const char *argv[])
       r = do_list_mapped_devices(cfg.format, cfg.pretty_format);
       if (r < 0)
         return -EINVAL;
+      break;
+    case Service:
+      r = service_start(&argc, &argv, "rbd-nbd");
+      if (r < 0)
+          return -EINVAL;
       break;
     default:
       usage();
