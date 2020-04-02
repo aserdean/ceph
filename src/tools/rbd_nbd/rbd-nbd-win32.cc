@@ -28,6 +28,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <process.h>
+#include <shellapi.h>
 
 #include <sys/socket.h>
 
