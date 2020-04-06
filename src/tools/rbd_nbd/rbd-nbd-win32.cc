@@ -28,7 +28,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <process.h>
-#include <shellapi.h>
+//#include <shellapi.h>
 
 #include <sys/socket.h>
 
@@ -64,8 +64,6 @@
 #include "include/xlist.h"
 
 #include "mon/MonClient.h"
-
-#include <shellapi.h>
 
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_rbd
@@ -129,6 +127,7 @@ detach_process(int argc, const char* argv[])
     error = CreatePipe(&read_pipe, &write_pipe, &sa, 0);
     if (!error) {
         std::cerr << "CreatePipe failed" << std::endl;
+        goto exit;
     }
 
     GetStartupInfo(&si);
@@ -142,6 +141,7 @@ detach_process(int argc, const char* argv[])
         NULL, NULL, &si, &pi);
     if (!error) {
         std::cerr << "CreateProcess failed" << std::endl;
+        goto exit;
     }
 
     /* Close one end of the pipe in the parent. */
@@ -151,9 +151,12 @@ detach_process(int argc, const char* argv[])
     error = ReadFile(read_pipe, &ch, 1, NULL, NULL);
     if (!error) {
         std::cerr << "Failed to read from child. GLA = " << GetLastError() << std::endl;
+        goto exit;
     }
+
+exit:
     /* The child has successfully started and is ready. */
-    exit(0);
+    exit(error);
 }
 
 std::wstring to_wstring(const std::string& str)
@@ -697,12 +700,15 @@ static int initialize_wnbd_connection(Config* cfg, unsigned long long size)
   char* hostname;
   hostname = inet_ntoa(a.inaddr.sin_addr);
   if (cfg->devpath.empty()) {
+      cfg->devpath = cfg->poolname;
+      cfg->devpath += cfg->nsname;
       if (!cfg->imgname.empty()) {
-          cfg->devpath = cfg->imgname;
-      } else if (!cfg->snapname.empty()) {
-          cfg->devpath = cfg->snapname;
+          cfg->devpath += cfg->imgname;
+      }
+      else if (!cfg->snapname.empty()) {
+          cfg->devpath += cfg->snapname;
       } else {
-          cfg->devpath = "/dev/nbd" + stringify(port);
+          cfg->devpath += "/dev/nbd" + stringify(port);
       }
   }
 
@@ -878,6 +884,15 @@ close_ret:
 static int do_unmap(Config *cfg)
 {
   int r;
+  if (cfg->devpath.empty()) {
+      cfg->devpath = cfg->poolname;
+      cfg->devpath += cfg->nsname;
+      if (!cfg->imgname.empty()) {
+          cfg->devpath += cfg->imgname;
+      } else if (!cfg->snapname.empty()) {
+          cfg->devpath += cfg->snapname;
+      }
+  }
 
   r = WnbdUnmap((char *)cfg->devpath.c_str());
   if (r != 0) {
@@ -1148,8 +1163,13 @@ static int parse_args(vector<const char*>& args, std::ostream *err_msg,
         *err_msg << "rbd-nbd: must specify nbd device or image-or-snap-spec";
         return -EINVAL;
       }
-      cfg->devpath = *args.begin();
-
+      if (boost::starts_with(*args.begin(), "/dev/")) {
+        cfg->devpath = *args.begin();
+      } else {
+        if (parse_imgpath(*args.begin(), cfg, err_msg) < 0) {
+          return -EINVAL;
+        }
+      }
       args.erase(args.begin());
       break;
     default:
