@@ -131,6 +131,7 @@ GetWnbdDriverHandle(VOID)
 
 DWORD
 WnbdMap(PCHAR InstanceName,
+        PSOCKADDR addr,
         PCHAR HostName,
         PCHAR PortName,
         PCHAR ExportName,
@@ -153,6 +154,7 @@ WnbdMap(PCHAR InstanceName,
         goto Exit;
     }
 
+    memcpy(&ConnectIn.Addr, addr, sizeof(SOCKADDR));
     memcpy(&ConnectIn.InstanceName, InstanceName, min(strlen(InstanceName)+1, MAX_NAME_LENGTH));
     memcpy(&ConnectIn.Hostname, HostName, min(strlen(HostName)+1, MAX_NAME_LENGTH));
     memcpy(&ConnectIn.PortName, PortName, min(strlen(PortName)+1, MAX_NAME_LENGTH));

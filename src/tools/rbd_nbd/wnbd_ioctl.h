@@ -34,6 +34,7 @@ WnbdUnmap(PCHAR instanceName);
 
 DWORD
 WnbdMap(PCHAR InstanceName,
+        PSOCKADDR addr,
         PCHAR HostName,
         PCHAR PortName,
         PCHAR ExportName,

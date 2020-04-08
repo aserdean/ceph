@@ -11,6 +11,10 @@
 extern "C" {
 #endif
 
+#ifndef _WINDOWS_
+#include <ws2def.h>
+#endif
+
 #define MAX_NAME_LENGTH    256
 
 #define FILE_DEVICE_WNBD      39088
@@ -35,6 +39,7 @@ typedef struct _USER_IN {
     CHAR            PortName[MAX_NAME_LENGTH];
     CHAR            ExportName[MAX_NAME_LENGTH];
     CHAR            SerialNumber[MAX_NAME_LENGTH];
+    SOCKADDR        Addr;
     BOOLEAN         MustNegotiate;
     INT             Pid;
     UINT64          DiskSize;

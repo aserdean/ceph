@@ -64,8 +64,6 @@
 
 #include "mon/MonClient.h"
 
-#include <shellapi.h>
-
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_rbd
 #undef dout_prefix
@@ -130,6 +128,7 @@ detach_process(int argc, const char* argv[])
     error = CreatePipe(&read_pipe, &write_pipe, &sa, 0);
     if (!error) {
         std::cerr << "CreatePipe failed" << std::endl;
+        goto exit;
     }
 
     GetStartupInfo(&si);
@@ -143,6 +142,7 @@ detach_process(int argc, const char* argv[])
         NULL, NULL, &si, &pi);
     if (!error) {
         std::cerr << "CreateProcess failed" << std::endl;
+        goto exit;
     }
 
     /* Close one end of the pipe in the parent. */
@@ -152,9 +152,12 @@ detach_process(int argc, const char* argv[])
     error = ReadFile(read_pipe, &ch, 1, NULL, NULL);
     if (!error) {
         std::cerr << "Failed to read from child. GLA = " << GetLastError() << std::endl;
+        goto exit;
     }
+
+exit:
     /* The child has successfully started and is ready. */
-    exit(0);
+    exit(error);
 }
 
 std::wstring to_wstring(const std::string& str)
@@ -234,13 +237,14 @@ struct Config {
 
 static void usage()
 {
-  std::cout << "Usage: rbd-nbd [options] map <image-or-snap-spec>  Map an image to nbd device\n"
-            << "               unmap <device|image-or-snap-spec>   Unmap nbd device\n"
-            << "               [options] <list|list-mapped>        List mapped nbd devices\n"
+  std::cout << "Usage: rbd-nbd [options] map <image-or-snap-spec>                   Map an image to nbd device\n"
+            << "               unmap <device|image-or-snap-spec>                    Unmap nbd device\n"
+            << "               [options] <list|list-mapped>                         List mapped nbd devices\n"
+            << "               [options] <show|show-mapped> <image-or-snap-spec>    Show mapped nbd device\n"
             << "Map options:\n"
             << "  --device <device path>  Specify nbd device path (/dev/nbd{num})\n"
             << "\n"
-            << "List options:\n"
+            << "Show|List options:\n"
             << "  --format plain|json|xml Output format (default: plain)\n"
             << "  --pretty-format         Pretty formatting (json and xml)\n"
             << std::endl;
@@ -257,7 +261,8 @@ enum Command {
   None,
   Connect,
   Disconnect,
-  List
+  List,
+  Show
 };
 
 static Command cmd = None;
@@ -677,6 +682,7 @@ static int initialize_wnbd_connection(Config* cfg, unsigned long long size)
     } a;
   socklen_t addrlen = sizeof(a.inaddr);
   unsigned int conn = 0;
+  std::cout << "was in: initialize_wnbd_connection" << std::endl;
   unsigned int listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (listener == INVALID_SOCKET)
       return SOCKET_ERROR;
@@ -698,16 +704,19 @@ static int initialize_wnbd_connection(Config* cfg, unsigned long long size)
   char* hostname;
   hostname = inet_ntoa(a.inaddr.sin_addr);
   if (cfg->devpath.empty()) {
+      cfg->devpath = cfg->poolname;
+      cfg->devpath += cfg->nsname;
       if (!cfg->imgname.empty()) {
-          cfg->devpath = cfg->imgname;
-      } else if (!cfg->snapname.empty()) {
-          cfg->devpath = cfg->snapname;
+          cfg->devpath += cfg->imgname;
+      }
+      else if (!cfg->snapname.empty()) {
+          cfg->devpath += cfg->snapname;
       } else {
-          cfg->devpath = "/dev/nbd" + stringify(port);
+          cfg->devpath += "/dev/nbd" + stringify(port);
       }
   }
-
-  if (WnbdMap((char *)cfg->devpath.c_str(), hostname, port, (char *)"", size, FALSE)) {
+  std::cout << "trying to map on: " << hostname << " port: " << port << std::endl;
+  if (WnbdMap((char *)cfg->devpath.c_str(), &a.addr, hostname, port, (char *)"", size, FALSE)) {
       std::cout << "Failed to initialize NBD connection. Error: " << GetLastError();
       goto error;
   }
@@ -878,15 +887,24 @@ close_ret:
 
 static int do_unmap(Config *cfg)
 {
-  int r;
+  DWORD r;
+  if (cfg->devpath.empty()) {
+      cfg->devpath = cfg->poolname;
+      cfg->devpath += cfg->nsname;
+      if (!cfg->imgname.empty()) {
+          cfg->devpath += cfg->imgname;
+      } else if (!cfg->snapname.empty()) {
+          cfg->devpath += cfg->snapname;
+      }
+  }
 
   r = WnbdUnmap((char *)cfg->devpath.c_str());
   if (r != 0) {
       cerr << "rbd-nbd: failed to open device: " << cfg->devpath << std::endl;
-      return -r;
+      return -ENOENT;
   }
 
-  return r;
+  return 0;
 }
 
 static int parse_imgpath(const std::string &imgpath, Config *cfg,
@@ -1063,6 +1081,175 @@ static int do_list_mapped_devices(const std::string &format, bool pretty_format)
   return 0;
 }
 
+static int do_show_device(Config* cfg)
+{
+  std::string format = cfg->format;
+  bool pretty_format = cfg->pretty_format;
+  bool should_print = false;
+  std::unique_ptr<ceph::Formatter> f;
+  TextTable tbl;
+
+  if (cfg->devpath.empty()) {
+      cfg->devpath = cfg->poolname;
+      cfg->devpath += cfg->nsname;
+      if (!cfg->imgname.empty()) {
+          cfg->devpath += cfg->imgname;
+      } else if (!cfg->snapname.empty()) {
+          cfg->devpath += cfg->snapname;
+      }
+  }
+
+  if (format == "json") {
+    f.reset(new JSONFormatter(pretty_format));
+  } else if (format == "xml") {
+    f.reset(new XMLFormatter(pretty_format));
+  } else if (!format.empty() && format != "plain") {
+    std::cerr << "rbd-nbd: invalid output format: " << format << std::endl;
+    return -EINVAL;
+  }
+
+  if (f) {
+    f->open_array_section("devices");
+  } else {
+    tbl.define_column("id", TextTable::LEFT, TextTable::LEFT);
+    tbl.define_column("pool", TextTable::LEFT, TextTable::LEFT);
+    tbl.define_column("namespace", TextTable::LEFT, TextTable::LEFT);
+    tbl.define_column("image", TextTable::LEFT, TextTable::LEFT);
+    tbl.define_column("snap", TextTable::LEFT, TextTable::LEFT);
+    tbl.define_column("device", TextTable::LEFT, TextTable::LEFT);
+    tbl.define_column("disk_number", TextTable::LEFT, TextTable::LEFT);
+    tbl.define_column("status", TextTable::LEFT, TextTable::LEFT);
+  }
+
+  Config cfg1;
+  PGET_LIST_OUT Output = NULL;
+  DWORD Status = WnbdList(&Output);
+  if (!Output) {
+    std::cerr << "rbd-nbd: invalid output status: " << Status << std::endl;
+    return -EINVAL;
+  }
+  bool found = false;
+  if (NULL != Output && ERROR_SUCCESS == Status) {
+      InitWMI();
+      for (ULONG index = 0; index < Output->ActiveListCount; index++) {
+          std::wstring WideString = to_wstring(Output->ActiveEntry[index].ConnectionInformation.SerialNumber);
+          std::wstring WQL = L"SELECT * FROM Win32_DiskDrive WHERE SerialNumber = '";
+          WQL.append(WideString);
+          WQL.append(L"'");
+          std::vector<DiskInfo> d;
+          std::vector<Win32_Proc> d_proc;
+          DiskInfo temp;
+          BSTR bstr_sql = SysAllocString(WQL.c_str());
+          QueryWMI(bstr_sql, d);
+          USER_IN iterator = Output->ActiveEntry[index].ConnectionInformation;
+          SysFreeString(bstr_sql);
+          if (iterator.InstanceName != cfg->devpath) {
+            continue;
+          }
+          if (d.size() != 1) {
+              std::cerr << "could not get disk number for current device: " << iterator.InstanceName << std::endl;
+          } else {
+              WideString = to_wstring(std::to_string(iterator.Pid));
+              WQL = L"SELECT ProcessId,CommandLine FROM Win32_Process WHERE ProcessId = '";
+              WQL.append(WideString);
+              WQL.append(L"'");
+              bstr_sql = SysAllocString(WQL.c_str());
+              QueryWMI(bstr_sql, d_proc);
+              SysFreeString(bstr_sql);
+              if (d_proc.size() != 1) {
+                  std::cerr << "could not get command line for process: " << std::to_string(iterator.Pid) << std::endl;
+              } else {
+                  found = true;
+                  std::vector<const char*> args;
+
+                  LPWSTR *szArglist;
+                  int nArgs;
+                  int i;
+                  temp = d[0];
+
+                  szArglist = CommandLineToArgvW(d_proc[0].CommandLine.c_str(), &nArgs);
+                  if( NULL == szArglist )
+                  {
+                    std::cerr << "CommandLineToArgvW failed" << std::endl;
+                    return -EINVAL;
+                  }
+                   std::string* tempArgs = new std::string[nArgs];
+                   for( i=1; i<nArgs; i++) {
+                       std::string temp = to_string(szArglist[i]);
+                       tempArgs[i] = temp;
+                       args.push_back(tempArgs[i].c_str());
+                   }
+
+                    std::ostringstream err_msg;
+                    Command command;
+                    int r = parse_args(args, &err_msg, &command, &cfg1);
+                    if (r < 0) {
+                      std::cerr << "parse_args failed" << std::endl;
+                      return -EINVAL;
+                    }
+
+                    if (command != Connect) {
+                      std::cerr << "Connect failed" << std::endl;
+                      return -EINVAL;
+                    }
+                    LocalFree(szArglist);
+                }
+            }
+            
+            if (f) {
+              f->open_object_section("device");
+              if (d.size() == 1) {
+                f->dump_int("id", iterator.Pid);
+                f->dump_string("pool", cfg1.poolname);
+                f->dump_string("namespace", cfg1.nsname);
+                f->dump_string("image", cfg1.imgname);
+                f->dump_string("snap", cfg1.snapname);
+              } else {
+                f->dump_int("id", -1);
+                f->dump_string("pool", "");
+                f->dump_string("namespace", "");
+                f->dump_string("image", "");
+                f->dump_string("snap", "");
+              }
+              f->dump_string("device", iterator.InstanceName);
+              if (d_proc.size() == 1) {
+                f->dump_int("disk_number", temp.Index);
+                f->dump_string("status", "available");
+              } else {
+                f->dump_int("disk_number", -1);
+                f->dump_string("status", "failed");
+              }
+              f->close_section();
+            } else {
+              should_print = true;
+              if (cfg1.snapname.empty()) {
+                  cfg1.snapname = "-";
+              }
+              if (d.size() == 1 && d_proc.size() == 1) {
+                  tbl << static_cast<int>(iterator.Pid) << cfg1.poolname << cfg1.nsname << cfg1.imgname << cfg1.snapname
+                      << iterator.InstanceName << static_cast<int>(temp.Index)  << "available" << TextTable::endrow;
+              } else {
+                  tbl << -1 << " " << " " << " " << " "
+                      << iterator.InstanceName << -1 << "failed" << TextTable::endrow;
+              }
+            }
+      }
+      ReleaseWMI();
+  }
+  if (f) {
+    f->close_section(); // devices
+    f->flush(std::cout);
+  }
+  if (should_print) {
+    std::cout << tbl;
+  }
+  if (!found) {
+      return -ENOENT;
+  }
+
+  return 0;
+}
+
 static int parse_args(vector<const char*>& args, std::ostream *err_msg,
                       Command *command, Config *cfg) {
   std::string conf_file_list;
@@ -1121,6 +1308,10 @@ static int parse_args(vector<const char*>& args, std::ostream *err_msg,
       cmd = List;
     } else if (strcmp(*args.begin(), "list") == 0) {
       cmd = List;
+    } else if (strcmp(*args.begin(), "show-mapped") == 0) {
+      cmd = Show;
+    } else if (strcmp(*args.begin(), "show") == 0) {
+      cmd = Show;
     } else {
       *err_msg << "rbd-nbd: unknown command: " <<  *args.begin();
       return -EINVAL;
@@ -1149,8 +1340,27 @@ static int parse_args(vector<const char*>& args, std::ostream *err_msg,
         *err_msg << "rbd-nbd: must specify nbd device or image-or-snap-spec";
         return -EINVAL;
       }
-      cfg->devpath = *args.begin();
-
+      if (boost::starts_with(*args.begin(), "/dev/")) {
+        cfg->devpath = *args.begin();
+      } else {
+        if (parse_imgpath(*args.begin(), cfg, err_msg) < 0) {
+          return -EINVAL;
+        }
+      }
+      args.erase(args.begin());
+      break;
+    case Show:
+      if (args.begin() == args.end()) {
+        *err_msg << "rbd-nbd: must specify nbd device or image-or-snap-spec";
+        return -EINVAL;
+      }
+      if (boost::starts_with(*args.begin(), "/dev/")) {
+        cfg->devpath = *args.begin();
+      } else {
+        if (parse_imgpath(*args.begin(), cfg, err_msg) < 0) {
+          return -EINVAL;
+        }
+      }
       args.erase(args.begin());
       break;
     default:
@@ -1200,11 +1410,15 @@ static int rbd_nbd(int argc, const char *argv[])
       break;
     case Disconnect:
       r = do_unmap(&cfg);
-      if (r < 0)
-        return -EINVAL;
+      return r;
       break;
     case List:
       r = do_list_mapped_devices(cfg.format, cfg.pretty_format);
+      if (r < 0)
+        return -EINVAL;
+      break;
+    case Show:
+      r = do_show_device(&cfg);
       if (r < 0)
         return -EINVAL;
       break;
@@ -1223,7 +1437,7 @@ int main(int argc, const char *argv[])
   SetErrorMode(GetErrorMode() | SEM_NOGPFAULTERRORBOX);
   int r = rbd_nbd(argc, argv);
   if (r < 0) {
-    return EXIT_FAILURE;
+    return -r;
   }
   return 0;
 }
