@@ -228,6 +228,7 @@ struct Config {
   int nbds_max = 0;
   int max_part = 255;
   int timeout = -1;
+  int log_level = 3;
 
   bool exclusive = false;
   bool readonly = false;
@@ -249,6 +250,7 @@ static void usage()
 {
   std::cout << "Usage: rbd-nbd [options] map <image-or-snap-spec>                   Map an image to nbd device\n"
             << "               unmap <device|image-or-snap-spec>                    Unmap nbd device\n"
+            << "               set-loglevel --log-level <value>                     Set the log level for the WNBD driver"
             << "               [options] <list|list-mapped>                         List mapped nbd devices\n"
             << "               [options] <show|show-mapped> <image-or-snap-spec>    Show mapped nbd device\n"
             << "Map options:\n"
@@ -272,7 +274,8 @@ enum Command {
   Connect,
   Disconnect,
   List,
-  Show
+  Show,
+  LogLevel
 };
 
 static Command cmd = None;
@@ -918,6 +921,19 @@ static int do_unmap(Config *cfg)
   return 0;
 }
 
+static int do_set_log_level(Config *cfg)
+{
+  DWORD r;
+
+  r = WnbdSetDebug(cfg->log_level);
+  if (r != 0) {
+      cerr << "rbd-nbd: failed to unmap device: " << cfg->devpath << " with last error: " << r << std::endl;
+      return -EINVAL;
+  }
+
+  return 0;
+}
+
 static int parse_imgpath(const std::string &imgpath, Config *cfg,
                          std::ostream *err_msg) {
   std::regex pattern("^(?:([^/]+)/(?:([^/@]+)/)?)?([^@]+)(?:@([^/@]+))?$");
@@ -1304,6 +1320,15 @@ static int parse_args(vector<const char*>& args, std::ostream *err_msg,
         return -EINVAL;
       }
       set_pipe_handle(cfg->detached);
+    } else if (ceph_argparse_witharg(args, i, &cfg->log_level, err, "--log-level", (char *)NULL)) {
+      if (!err.str().empty()) {
+        *err_msg << "rbd-nbd: " << err.str();
+        return -EINVAL;
+      }
+      if (cfg->log_level < 0) {
+        *err_msg << "rbd-nbd: Invalid argument for --log-level!";
+        return -EINVAL;
+      }
     } else {
       ++i;
     }
@@ -1323,6 +1348,8 @@ static int parse_args(vector<const char*>& args, std::ostream *err_msg,
       cmd = Show;
     } else if (strcmp(*args.begin(), "show") == 0) {
       cmd = Show;
+    } else if (strcmp(*args.begin(), "set-loglevel") == 0) {
+      cmd = LogLevel;
     } else {
       *err_msg << "rbd-nbd: unknown command: " <<  *args.begin();
       return -EINVAL;
@@ -1373,6 +1400,8 @@ static int parse_args(vector<const char*>& args, std::ostream *err_msg,
         }
       }
       args.erase(args.begin());
+      break;
+    case LogLevel:
       break;
     default:
       //shut up gcc;
@@ -1433,6 +1462,11 @@ static int rbd_nbd(int argc, const char *argv[])
       r = do_show_device(&cfg);
       if (r < 0)
         return -EINVAL;
+      break;
+    case LogLevel:
+      r = do_set_log_level(&cfg);
+      if (r < 0)
+        return r;
       break;
     default:
       usage();
