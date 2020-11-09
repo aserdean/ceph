@@ -1,2 +1,3 @@
 .githubmap merge=union
 PendingReleaseNotes merge=union
+*.sh eol=lf
