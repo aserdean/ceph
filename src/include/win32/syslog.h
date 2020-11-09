@@ -53,10 +53,38 @@ static inline void
 openlog(const char *ident, int option, int facility)
 {
 }
+#include <windows.h>
+
+void WriteEventLogEntry(const char* pszMessage, WORD wType)
+{
+    HANDLE hEventSource = NULL;
+    LPCSTR lpszStrings[2] = { NULL, NULL };
+
+    hEventSource = RegisterEventSourceA(NULL, "Test123");
+    if (hEventSource)
+    {
+        lpszStrings[0] = "Test123";
+        lpszStrings[1] = pszMessage;
+
+        ReportEventA(hEventSource,  // Event log handle
+            wType,                 // Event type
+            0,                     // Event category
+            0,                     // Event identifier
+            NULL,                  // No security identifier
+            2,                     // Size of lpszStrings array
+            0,                     // No binary data
+            lpszStrings,           // Array of strings
+            NULL                   // No binary data
+        );
+
+        DeregisterEventSource(hEventSource);
+    }
+}
 
 static inline void
 syslog(int priority, const char *format, ...)
 {
+    WriteEventLogEntry(format, EVENTLOG_INFORMATION_TYPE);
 }
 
 #endif /* syslog.h */

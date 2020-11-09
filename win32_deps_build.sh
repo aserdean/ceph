@@ -67,11 +67,12 @@ mkdir -p $depsSrcDir
 
 case "$OS" in
     ubuntu)
-        sudo apt-get -y install mingw-w64 cmake pkg-config python3-dev python3-pip \
+        sudo apt-get -y install mingw-w64 binutils-mingw-w64 cmake pkg-config python3-dev python3-pip \
                 autoconf libtool ninja-build zip
         sudo python3 -m pip install cython
         ;;
     suse)
+# TODO find and test install binutils-mingw-w64 for suse   
         for PKG in mingw64-cross-gcc-c++ mingw64-libgcc_s_seh1 mingw64-libstdc++6 \
                 cmake pkgconf python3-devel autoconf libtool ninja zip \
                 python3-Cython gcc patch wget git; do
